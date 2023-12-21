@@ -1,0 +1,26 @@
+<annotation>
+	<folder>JPEGImages</folder>
+	<filename>img2_008.jpg</filename>
+	<path>E:\transfer learning\myself\faster_rcnn\VOCdevkit\VOC2012\JPEGImages\img2_008.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>370</width>
+		<height>466</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>defect</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>236</xmin>
+			<ymin>5</ymin>
+			<xmax>253</xmax>
+			<ymax>30</ymax>
+		</bndbox>
+	</object>
+</annotation>
