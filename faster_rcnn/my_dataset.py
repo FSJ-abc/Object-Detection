@@ -71,6 +71,11 @@ class VOCDataSet(Dataset):
         if image.format != "JPEG":
             raise ValueError("Image '{}' format not JPEG".format(img_path))
 
+        # 这里添加检查和处理代码
+        if not isinstance(image.size, tuple):
+            img_size = tuple(image.size)
+        else:
+            img_size = image.size
         boxes = []
         labels = []
         iscrowd = []
