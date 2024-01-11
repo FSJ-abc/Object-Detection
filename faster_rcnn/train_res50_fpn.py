@@ -2,15 +2,14 @@ import os
 import datetime
 
 import torch
-
+import random
 import transforms
 from network_files import FasterRCNN, FastRCNNPredictor
 from backbone import resnet50_fpn_backbone
 from my_dataset import VOCDataSet
 from train_utils import GroupedBatchSampler, create_aspect_ratio_groups
 from train_utils import train_eval_utils as utils
-from VOCdevkit.transforms.grid import Grid
-from VOCdevkit.transforms.build import build_transforms
+from common import EMA
 from config import cfg
 # from torchvision import models.detection.fasterrcnn
 
@@ -59,11 +58,17 @@ def main(args):
     #     grid = Grid(True,True,cfg.GRID.ROTATE,cfg.GRID.OFFSET,cfg.GRID.RATIO,cfg.GRID.MODE,cfg.GRID.PROB)
 
     data_transform = {
-        "train": transforms.Compose([transforms.ToTensor(),
-                                     transforms.RandomHorizontalFlip(0.5),
-                                     transforms.RandomVerticalFlip(0.5),
-                                     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                                     ]),
+        "train": transforms.Compose([
+            transforms.ToTensor(),
+            random.choice([
+                transforms.RandomHorizontalFlip(0.5),  # 随机水平翻转
+                transforms.RandomVerticalFlip(0.5),  # 随机垂直翻转
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.Grid(use_h=True, use_w=True, rotate=45, offset=False, ratio=0.5, mode=0, prob=0.5),
+                # transforms.RandomRotation(degrees=45),  # 随机旋转
+                # transforms.RandomResizedCrop(size=(256, 256), scale=(0.8, 1.0)),  # 随机裁剪
+                ]),
+            ]),
 
         "val": transforms.Compose([transforms.ToTensor()])
     }

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<annotation>
+ <folder>before_169.png</folder>
+ <filename>before_169.png</filename>
+ <path>./imgNoRectangle\before_169.png</path>
+ <source>
+  <database>Unknown</database>
+ </source>
+ <size>
+  <width>640</width>
+  <height>480</height>
+  <depth>3</depth>
+ </size>
+ <segmented>0</segmented>
+ <object>
+  <name>defect</name>
+  <pose>Unspecified</pose>
+  <truncated>0</truncated>
+  <difficult>0</difficult>
+  <bndbox>
+   <xmin>24</xmin>
+   <ymin>228.0</ymin>
+   <xmax>73</xmax>
+   <ymax>371.0</ymax>
+  </bndbox>
+ </object>
+</annotation>
