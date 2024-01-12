@@ -1,5 +1,5 @@
 from matplotlib.patches import Rectangle
-from scipy.signal import medfilt
+from scipy.signal import medfilt, correlate2d
 import matplotlib.pyplot as plt
 from xml.dom import minidom
 import scipy.io as scio
@@ -7,6 +7,7 @@ from PIL import Image
 import numpy as np
 import os
 import progressbar
+
 def gen_xml_rect(xml_path, img_full_path, obj_list):
     """
     生成矩形框标注文件
@@ -128,89 +129,78 @@ def gen_xml_rect(xml_path, img_full_path, obj_list):
     except Exception as err:
         print('错误信息：{0}'.format(err))
 
-def save_plot_datasource_arrays(large_array, small_matrices_list, dy, save_path_before, save_path_after, objects, xml_path):
-    """
-    绘制大矩阵，并在其中找到小矩阵列表中的小矩阵，然后用标记小矩阵的角点。
 
-    参数:
-    - large_array: 大数据矩阵
-    - small_matrices_list: 小矩阵列表
-    - dy: 偏移量
-    - save_path_before: 处理前的图形保存的文件路径或文件名
-    - save_path_after: 处理后的图形保存的文件路径或文件名
-    - objects: 用于表示小矩阵标记的对象信息
-    - xml_path: 生成的 XML 文件的保存路径或文件名
+def save_plot_datasource_arrays(large_array, small_matrices_list, dy, save_path_before, save_path_after, objects,
+                                xml_path):
     """
-    # 求出 large_array 和 small_array 的行数和列数
+     绘制大矩阵，并在其中找到小矩阵列表中的小矩阵，然后用标记小矩阵的角点。
+
+     参数:
+     - large_array: 大数据矩阵
+     - small_matrices_list: 小矩阵列表
+     - dy: 偏移量
+     - save_path_before: 处理前的图形保存的文件路径或文件名
+     - save_path_after: 处理后的图形保存的文件路径或文件名
+     - objects: 用于表示小矩阵标记的对象信息
+     - xml_path: 生成的 XML 文件的保存路径或文件名
+     """
+    # 大矩阵的行数和列数
     rows_large, cols_large = large_array.shape
-    # 不直接在原始数据上处理，新建一个矩阵
-    enlarge_array = np.zeros((rows_large, cols_large))
-    # 创建 Axes 对象
+
+    # 处理大矩阵
+    enlarge_array = large_array + np.arange(cols_large) * dy
+
+    # 绘制大矩阵的图形
     ax = plt.gca()
-    # 对大矩阵的数据进行处理
     for j in range(cols_large):
-        for i in range(rows_large):
-            enlarge_array[i, j] = large_array[i, j] + dy * j
-    # # 使用广播执行矩阵元素级操作
-    # enlarge_array = large_array + np.arange(cols_large) * dy
-    #
-    # # 画出大矩阵的图
-    # for j in range(cols_large):
         ax.plot(enlarge_array[:, j], color='blue', label='Large Array')
+
     # 保存处理前的图形
     if save_path_before:
         plt.savefig(save_path_before)
 
-        # 在大矩阵中查找小矩阵的位置
-    marked_regions = []  # List to store marked regions
+    # 标记区域的列表
+    marked_regions = []
 
-    # 获取总的迭代次数
-    total_iterations = len(small_matrices_list)
+    # 在大矩阵中查找每个小矩阵
+    for small_matrix in small_matrices_list:
+        if small_matrix.shape[0] > enlarge_array.shape[0] or small_matrix.shape[1] > enlarge_array.shape[1]:
+            # 跳过尺寸太大的小矩阵
+            continue
 
-    # 创建进度条
-    bar = progressbar.ProgressBar(maxval=max(1, total_iterations),
-                                  widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.Percentage()])
-    bar.start()
-    for idx, small_matrix in enumerate(small_matrices_list):
-        rows_small, cols_small = small_matrix.shape
-        resmall_array = np.zeros((rows_small, cols_small))
-        # 在大矩阵中查找小矩阵的位置
-        for i in range(rows_large - rows_small + 1):
-            for j in range(cols_large - cols_small + 1):
-                if np.array_equal(large_array[i:i + rows_small, j:j + cols_small], small_matrix):
-                    # 计算最小和最大的角点坐标
-                    min_x, max_x = i, i + rows_small - 1
-                    resmall_array = enlarge_array[int(i):int(i + rows_small), int(j):int(j + cols_small)]
-                    min_y, max_y = np.min(resmall_array), np.max(resmall_array)
+        # 计算两个矩阵的相关性
+        correlation = correlate2d(enlarge_array, small_matrix, mode='valid')
 
-                    # 绘制矩形
-                    rect_x = [min_x, max_x, max_x, min_x, min_x]
-                    rect_y = [min_y, min_y, max_y, max_y, min_y]
-                    ax.plot(rect_x, rect_y, color='red', linestyle='dashed')
-                    print("报告营长，发现敌人！！！！！！！已标记！！！！yes，sir！")
-                    # 存储标记的区域
-                    marked_regions.append([min_x, min_y, max_x, max_y, objects])
-        # 更新进度条
-        bar.update(idx + 1)
-    bar.finish()
+        # 设置一个阈值来确定匹配的准确度
+        threshold = np.max(correlation) * 0.3
+        match_indices = np.where(correlation >= threshold)
+
+        # 对每个匹配位置进行处理
+        for (x, y) in zip(*match_indices):
+            # 计算小矩阵在大矩阵中的位置
+            min_x, max_x = x, x + small_matrix.shape[0] - 1
+            min_y, max_y = np.min(correlation), np.max(correlation)
+
+            # 绘制矩形以标记匹配区域
+            rect_x = [min_x, max_x, max_x, min_x, min_x]
+            rect_y = [min_y, min_y, max_y, max_y, min_y]
+            ax.plot(rect_x, rect_y, color='red', linestyle='dashed')
+            print("有标记")
+            # 添加到标记区域列表
+            marked_regions.append([min_x, min_y, max_x, max_y, objects])
+
     # 生成 XML 文件
     if marked_regions:
+        # 这里假设 gen_xml_rect 是一个自定义函数，用于生成 XML 文件
         gen_xml_rect(xml_path, save_path_before, marked_regions)
 
     # 保存处理后的图形
     if save_path_after:
-        # 获取当前图形的 figure 对象
         fig = plt.gcf()
-        # 设置 figure 对象到 Axes 对象上
         ax.figure = fig
-        # 保存整个图形
         fig.savefig(save_path_after)
-    plt.clf()  # Clear the plot for the next image
-    # 显示图形
-    # plt.show()
-    # 打印提示信息
-    # print("数据图像成功保存")
 
+    plt.clf()  # 清除当前绘图
 
 def split_matrix_circular(matrix, rows, cols):
     """
