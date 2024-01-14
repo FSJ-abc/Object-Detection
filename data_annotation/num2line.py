@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import time
 
@@ -522,28 +524,82 @@ little_data="""
 #
 #     return best_match
 
-def find_common_submatrix(A, B, threshold=0.5):
-    """
-    使用卷积方法查找矩阵 A 和 B 的公共子矩阵。
-    """
-    # 确保 A 是较大的矩阵
-    if A.size < B.size:
-        A, B = B, A
+# def find_common_submatrix(A, B, threshold=0.5):
+#     """
+#     使用卷积方法查找矩阵 A 和 B 的公共子矩阵。
+#     """
+#     # 确保 A 是较大的矩阵
+#     if A.size < B.size:
+#         A, B = B, A
+#
+#     # 计算 A 和 B 的卷积
+#     correlation = correlate2d(A, B, mode='valid')
+#     max_correlation = np.max(correlation)
+#
+#     # 阈值筛选潜在的匹配区域
+#     potential_matches = np.where(correlation >= max_correlation * threshold)
+#
+#     # 验证潜在匹配
+#     for i, j in zip(*potential_matches):
+#         submatrix_A = A[i:i+B.shape[0], j:j+B.shape[1]]
+#         if np.array_equal(submatrix_A, B):
+#             return submatrix_A
+#
+#     return None
+# 尝试的方法，宣布失败
+# def find_common_submatrix(large_matrix,small_matrix):
+#     # 首先算出来大矩阵和小矩阵的行数和列数
+#     large_rows, large_cols = large_matrix.shape
+#     small_rows, small_cols = small_matrix.shape
+#     # 看看大矩阵和小矩阵对应的行和列能否相互整除
+#     # 计算需要填充多少行和列
+#     pad_rows = small_rows - large_rows % small_rows if large_rows % small_rows != 0 else 0
+#     pad_cols = small_cols - large_cols % small_cols if large_cols % small_cols != 0 else 0
+#     # 填充矩阵
+#     padded_matrix = np.pad(large_matrix, ((0, pad_rows), (0, pad_cols)), mode='constant')
+#     # 将大矩阵划分成很多个小矩阵的大小然后将划分后的矩阵存储在list中(分块矩阵）
+#     split_list = [padded_matrix[i:i + small_rows, j:j + small_cols] for i in range(0, padded_matrix.shape[0], small_rows) for j in
+#      range(0, padded_matrix.shape[1], small_cols)]
+#     # 建立一个一样的索引矩阵用来寻找该矩阵在原始矩阵中的相对位置
+#     index_matrix = np.arange(len(split_list)).reshape(padded_matrix.shape[0] / small_matrix.shape[0], padded_matrix.shape[1] / small_matrix.shape[1])
+#     # 循环对比缺陷矩阵和分裂矩阵，找出公共子矩阵，记录公共子矩阵在分裂矩阵中的位置，然后回溯到大矩阵中找到对应的矩阵，切片，然后对比得到矩阵位置
+#
+#     # 这里默认在中间的矩阵中如果找到一部分了就能找到全部部分
+# 该程序的内容是再大矩阵中找到小矩阵的最大公共子矩阵
+# 首先默认在矩阵中间找最大公共子矩阵，一定能找到和小矩阵一样大的矩阵
 
-    # 计算 A 和 B 的卷积
-    correlation = correlate2d(A, B, mode='valid')
-    max_correlation = np.max(correlation)
+def find_submatrix_optimized(large_matrix, small_matrix,rows_rate,cols_rate):
+    large_rows, large_cols = large_matrix.shape
+    small_rows, small_cols = small_matrix.shape
+    matched_positions = []
 
-    # 阈值筛选潜在的匹配区域
-    potential_matches = np.where(correlation >= max_correlation * threshold)
+    # 假设我们比较的是最小要求的公共子矩阵大小
+    submatrix_rows = math.floor(small_rows*rows_rate)
+    submatrix_cols = math.floor(small_cols*cols_rate)
 
-    # 验证潜在匹配
-    for i, j in zip(*potential_matches):
-        submatrix_A = A[i:i+B.shape[0], j:j+B.shape[1]]
-        if np.array_equal(submatrix_A, B):
-            return submatrix_A
-
-    return None
+    for i in range(large_rows - submatrix_rows + 1):
+        for j in range(large_cols - submatrix_cols + 1):
+            # 检查是否与小矩阵第一个元素匹配
+            if large_matrix[i, j] == small_matrix[0, 0]:
+                # 切片一个与小矩阵同样大小的子矩阵
+                large_submatrix = large_matrix[i:i + submatrix_rows, j:j + submatrix_cols]
+                small_submatrix = small_matrix[: submatrix_rows, :submatrix_cols]
+                # 比较这两个子矩阵
+                if np.array_equal(large_submatrix, small_submatrix):
+                    # 进行完整的比较
+                    full_submatrix = large_matrix[i:i + small_rows, j:j + small_cols]
+                     # 搜索区间在0-large_rows - small_rows + 1，找原样矩阵
+                    if i <= large_rows - small_rows + 1 and j <= large_cols - small_cols + 1:
+                        if np.array_equal(full_submatrix, small_matrix):
+                            matched_positions.append((i, j, i+small_rows, j + small_cols))
+                    else:
+                        if i <= large_rows - small_rows + 1 and j > large_cols - small_cols + 1:
+                            temp = large_matrix[i: i + small_rows, j:large_cols]
+                        else:
+                            temp = large_matrix[i: large_rows, j:j + small_cols]
+                        if np.array_equal(temp, small_matrix[: temp.shape[0], : temp.shape[1]]):
+                            matched_positions.append((i, j))
+    return matched_positions
 # 记录开始时间
 start_time = time.time()
 
@@ -552,9 +608,10 @@ A = txtToStr(big_data)
 B = txtToStr(little_data)
 
 # 查找公共子矩阵
-common_submatrix = find_common_submatrix(A, B)
+# common_submatrix = find_common_submatrix(A, B)
 # print("公共子矩阵:\n", common_submatrix)
 
+print(f"{find_submatrix_optimized(A, B, 0.5, 0.5)}")
 # 记录结束时间
 end_time = time.time()
 

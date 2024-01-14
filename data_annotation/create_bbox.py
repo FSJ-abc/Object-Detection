@@ -1,3 +1,6 @@
+import math
+import time
+
 from matplotlib.patches import Rectangle
 from scipy.signal import medfilt, correlate2d
 import matplotlib.pyplot as plt
@@ -129,8 +132,65 @@ def gen_xml_rect(xml_path, img_full_path, obj_list):
     except Exception as err:
         print('错误信息：{0}'.format(err))
 
+# 查找两个矩阵的公共最大子矩阵
+def find_common_submatrix(A, B, threshold=0.5):
+    """
+    使用卷积方法查找矩阵 A 和 B 的公共子矩阵。
+    """
+    # 确保 A 是较大的矩阵
+    if A.size < B.size:
+        A, B = B, A
 
-def save_plot_datasource_arrays(large_array, small_matrices_list, dy, save_path_before, save_path_after, objects,
+    # 计算 A 和 B 的卷积
+    correlation = correlate2d(A, B, mode='valid')
+    max_correlation = np.max(correlation)
+
+    # 阈值筛选潜在的匹配区域
+    potential_matches = np.where(correlation >= max_correlation * threshold)
+
+    # 验证潜在匹配
+    for i, j in zip(*potential_matches):
+        submatrix_A = A[i:i+B.shape[0], j:j+B.shape[1]]
+        if np.array_equal(submatrix_A, B):
+            return submatrix_A
+
+    return None
+# 该程序的内容是再大矩阵中找到小矩阵的最大公共子矩阵
+# 首先默认在矩阵中间找最大公共子矩阵，一定能找到和小矩阵一样大的矩阵
+
+def find_submatrix_optimized(large_matrix, small_matrix,rows_rate,cols_rate):
+    large_rows, large_cols = large_matrix.shape
+    small_rows, small_cols = small_matrix.shape
+    matched_positions = []
+
+    # 假设我们比较的是最小要求的公共子矩阵大小
+    submatrix_rows = math.floor(small_rows*rows_rate)
+    submatrix_cols = math.floor(small_cols*cols_rate)
+
+    for i in range(large_rows - submatrix_rows + 1):
+        for j in range(large_cols - submatrix_cols + 1):
+            # 检查是否与小矩阵第一个元素匹配
+            if large_matrix[i, j] == small_matrix[0, 0]:
+                # 切片一个与小矩阵同样大小的子矩阵
+                large_submatrix = large_matrix[i:i + submatrix_rows, j:j + submatrix_cols]
+                small_submatrix = small_matrix[: submatrix_rows, :submatrix_cols]
+                # 比较这两个子矩阵
+                if np.array_equal(large_submatrix, small_submatrix):
+                    # 进行完整的比较
+                    full_submatrix = large_matrix[i:i + small_rows, j:j + small_cols]
+                     # 搜索区间在0-large_rows - small_rows + 1，找原样矩阵
+                    if i <= large_rows - small_rows + 1 and j <= large_cols - small_cols + 1:
+                        if np.array_equal(full_submatrix, small_matrix):
+                            matched_positions.append((i, j, i+small_rows, j + small_cols))
+                    else:
+                        if i <= large_rows - small_rows + 1 and j > large_cols - small_cols + 1:
+                            temp = large_matrix[i: i + small_rows, j:large_cols]
+                        else:
+                            temp = large_matrix[i: large_rows, j:j + small_cols]
+                        if np.array_equal(temp, small_matrix[: temp.shape[0], : temp.shape[1]]):
+                            matched_positions.append((i, j))
+    return matched_positions
+def save_plot_datasource_arrays(large_array, small_matrices_list, dy, save_path_before, save_path_after, objects,circleOrNot,
                                 xml_path):
     """
      绘制大矩阵，并在其中找到小矩阵列表中的小矩阵，然后用标记小矩阵的角点。
@@ -142,6 +202,7 @@ def save_plot_datasource_arrays(large_array, small_matrices_list, dy, save_path_
      - save_path_before: 处理前的图形保存的文件路径或文件名
      - save_path_after: 处理后的图形保存的文件路径或文件名
      - objects: 用于表示小矩阵标记的对象信息
+     - circleOrNot:用于表示是否是循环缺陷的处理过程，如果是1的话就是过圈缺陷，否则是正常缺陷
      - xml_path: 生成的 XML 文件的保存路径或文件名
      """
     # 大矩阵的行数和列数
@@ -149,6 +210,8 @@ def save_plot_datasource_arrays(large_array, small_matrices_list, dy, save_path_
 
     # 处理大矩阵
     enlarge_array = large_array + np.arange(cols_large) * dy
+
+    plt.clf()  # 清除当前绘图
 
     # 绘制大矩阵的图形
     ax = plt.gca()
@@ -163,44 +226,79 @@ def save_plot_datasource_arrays(large_array, small_matrices_list, dy, save_path_
     marked_regions = []
 
     # 在大矩阵中查找每个小矩阵
-    for small_matrix in small_matrices_list:
-        if small_matrix.shape[0] > enlarge_array.shape[0] or small_matrix.shape[1] > enlarge_array.shape[1]:
-            # 跳过尺寸太大的小矩阵
+    for small_matrix, flag in small_matrices_list:
+        # 如果标志位为1，则跳过此次循环
+        if flag != circleOrNot:
             continue
+        # 在大矩阵中查找缺陷矩阵的位置
+        matched_positions = find_submatrix_optimized(large_array, small_matrix, 0.7, 0.3)
+        # 如果没找到缺陷，就直接跳过
+        if not matched_positions:
+            continue
+        # 计算小矩阵在大矩阵中的位置
+        min_x, max_x = matched_positions[0], matched_positions[2]
+        min_y, max_y = np.min(enlarge_array[matched_positions[0]:matched_positions[2], matched_positions[1], matched_positions[3]]), \
+            np.max(enlarge_array[matched_positions[0]:matched_positions[2], matched_positions[1], matched_positions[3]])
 
-        # 计算两个矩阵的相关性
-        correlation = correlate2d(enlarge_array, small_matrix, mode='valid')
+        # 绘制矩形以标记匹配区域
+        rect_x = [min_x, max_x, max_x, min_x, min_x]
+        rect_y = [min_y, min_y, max_y, max_y, min_y]
+        ax.plot(rect_x, rect_y, color='red', linestyle='dashed')
+        print("有标记")
+        # 添加到标记区域列表
+        marked_regions.append([min_x, min_y, max_x, max_y, objects])
+        # 如果找到缺陷位置了，才保存处理后的图形
+        if save_path_after:
+            fig = plt.gcf()
+            ax.figure = fig
+            fig.savefig(save_path_after)
 
-        # 设置一个阈值来确定匹配的准确度
-        threshold = np.max(correlation) * 0.3
-        match_indices = np.where(correlation >= threshold)
 
-        # 对每个匹配位置进行处理
-        for (x, y) in zip(*match_indices):
-            # 计算小矩阵在大矩阵中的位置
-            min_x, max_x = x, x + small_matrix.shape[0] - 1
-            min_y, max_y = np.min(correlation), np.max(correlation)
 
-            # 绘制矩形以标记匹配区域
-            rect_x = [min_x, max_x, max_x, min_x, min_x]
-            rect_y = [min_y, min_y, max_y, max_y, min_y]
-            ax.plot(rect_x, rect_y, color='red', linestyle='dashed')
-            print("有标记")
-            # 添加到标记区域列表
-            marked_regions.append([min_x, min_y, max_x, max_y, objects])
+        # small_rows, small_cols = small_matrix.shape
+        # if small_matrix.shape[0] > enlarge_array.shape[0] or small_matrix.shape[1] > enlarge_array.shape[1]:
+        #     # 跳过尺寸太大的小矩阵
+        #     continue
+        # # 计算缺陷矩阵和切片矩阵的最大公共子矩阵
+        # intersection = find_common_submatrix(large_array, small_matrix)
+        #
+        # if intersection is None:
+        #     continue
+        #
+        # sec_rows, sec_cols = intersection.shape
 
-    # 生成 XML 文件
-    if marked_regions:
-        # 这里假设 gen_xml_rect 是一个自定义函数，用于生成 XML 文件
-        gen_xml_rect(xml_path, save_path_before, marked_regions)
+        # # 如果公共子矩阵的行列满足要求
+        # if sec_rows >= small_rows * 0.7 and sec_cols >= small_cols * 0.3:
+        #     #找到矩阵所在位置
+        #     for i in range(rows_large - sec_rows + 1):
+        #         for j in range(cols_large - sec_cols + 1):
+        #             if np.array_equal(large_array[i:i + sec_rows, j:j + sec_cols], intersection):
+        #                 # 计算小矩阵在大矩阵中的位置
+        #                 min_x, max_x = i, i + sec_rows - 1
+        #                 min_y, max_y = np.min(enlarge_array[i:i + sec_rows, j:j + sec_cols]), np.max(
+        #                     enlarge_array[i:i + sec_rows, j:j + sec_cols])
+        #
+        #                 # 绘制矩形以标记匹配区域
+        #                 rect_x = [min_x, max_x, max_x, min_x, min_x]
+        #                 rect_y = [min_y, min_y, max_y, max_y, min_y]
+        #                 ax.plot(rect_x, rect_y, color='red', linestyle='dashed')
+        #                 print("有标记")
+        #                 # 添加到标记区域列表
+        #                 marked_regions.append([min_x, min_y, max_x, max_y, objects])
+        #     # 如果找到缺陷位置了，才保存处理后的图形
+        #     if save_path_after:
+        #         fig = plt.gcf()
+        #         ax.figure = fig
+        #         fig.savefig(save_path_after)
 
-    # 保存处理后的图形
-    if save_path_after:
-        fig = plt.gcf()
-        ax.figure = fig
-        fig.savefig(save_path_after)
+    # # 生成 XML 文件
+    # if marked_regions:
+    #     # 这里假设 gen_xml_rect 是一个自定义函数，用于生成 XML 文件
+    #     gen_xml_rect(xml_path, save_path_before, marked_regions)
 
-    plt.clf()  # 清除当前绘图
+
+
+
 
 def split_matrix_circular(matrix, rows, cols):
     """
@@ -294,10 +392,10 @@ def extractingDefectData(defectLogo, initData, dx=None):
     参数:
     - initData: 原始矩阵
     - defectLogo: 缺陷在矩阵中的位置集合
-    - dx: 提取时的偏移量，如果提取纯缺陷矩阵，值为零
+    - dx: 提取时的偏移量，如果缺陷矩阵无过圈，值为0，否则值为1
 
     返回:
-    - result_list: 提取矩阵的列表
+    - result_list: 包含提取矩阵及其标志位的列表
     """
     firstColumn = initData[:, 0]
 
@@ -310,15 +408,21 @@ def extractingDefectData(defectLogo, initData, dx=None):
         width_low = int(defectLogo[i, 2])
         width_high = int(defectLogo[i, 3])
 
+        # 定义标志位
+        flag = 0
+
         if width_high < width_low:
             temp_1 = initData[height_low:height_high, width_low:194]
             temp_2 = initData[height_low:height_high, 2:width_high]
-            result_list.append(np.concatenate((temp_1, temp_2), axis=1))
+            combined_matrix = np.concatenate((temp_1, temp_2), axis=1)
+            flag = 1  # 更新标志位
         else:
-            result_list.append(initData[height_low:height_high, width_low:width_high])
+            combined_matrix = initData[height_low:height_high, width_low:width_high]
+
+        # 将提取的矩阵和对应的标志位作为一个元组添加到列表中
+        result_list.append((combined_matrix, flag))
 
     return result_list
-
 def ensure_directory(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -339,8 +443,16 @@ def process_data(data_init_address, data_logo_address, img_noRectangle_address=N
         # 提取第二个子数组
         data_array = data_value[0][0][1]
 
-        # 将 array2 作为 datasource_array
+        # 将 array2 作为 datasource_array，这是正选的
         datasource_array = data_array[:, 1:194]
+        # 由于整个传感器呈环形排列，所以这里将两个矩阵重新组合形成环状完整数据
+        # 将 datasource_array 按列分成两部分
+        mid_col = datasource_array.shape[1] // 2
+        part1 = datasource_array[:, :mid_col]
+        part2 = datasource_array[:, mid_col:]
+
+        # 将两个part重新按列拼接起来
+        circle_array = np.concatenate((part2, part1), axis=1)
 
         # 输出数据转换完成的提示
         print("数据已成功转换")
@@ -352,32 +464,64 @@ def process_data(data_init_address, data_logo_address, img_noRectangle_address=N
         # print("数据处理完成")
         # 画线状图
         # plot_datasource_array(datasource_array)
-        # 调用提取缺陷数据的函数，并将提取出的纯缺陷保存在defect_data_list中
+        # 调用提取缺陷数据的函数，并将提取出的纯缺陷和缺陷的标志位保存在defect_data_list中
         defect_data_list = extractingDefectData(logo_array, data_array)
 
         # 首先对原始矩阵均分，均分成指定份数
         data_list = split_matrix_circular(datasource_array, partition*100, partition)
-
-        # 循环处理当前的数据列表
+        # 循环处理当前的数据列表(非过圈数据的处理
         for i, data in enumerate(data_list):
             # for j, defect_data in enumerate(defect_data_list):
             # 构建保存路径
             save_path_before = os.path.join(img_noRectangle_address,
-                                            f'before_{i}.png') if img_noRectangle_address else None
+                                            f'noCircleBefore_{i}.png') if img_noRectangle_address else None
             save_path_after = os.path.join(img_rectangle_address,
-                                           f'after_{i}.png') if img_rectangle_address else None
-            xml_path = os.path.join(xml_save_address, f'annotation_{i}.xml') if xml_save_address else None
+                                           f'noCircleAfter_{i}.png') if img_rectangle_address else None
+            xml_path = os.path.join(xml_save_address, f'noCircleAnnotation_{i}.xml') if xml_save_address else None
 
             # Ensure directories exist
             for path in (
             os.path.dirname(save_path_before), os.path.dirname(save_path_after), os.path.dirname(xml_path)):
                 ensure_directory(path)
 
-            save_plot_datasource_arrays(data, defect_data_list, 5, save_path_before, save_path_after, 'defect', xml_path)
+            # 记录开始时间
+            start_time = time.time()
+            save_plot_datasource_arrays(data, defect_data_list, 5, save_path_before, save_path_after, 'defect', 0, xml_path)
+            # 记录结束时间
+            end_time = time.time()
+
+            # 计算运行时间
+            elapsed_time = end_time - start_time
             # 打印提示信息
-            print(f'第{i}张图片已保存')
+            print(f'第{i}张正常缺陷检测图片已保存,运行时间：{elapsed_time} 秒')
         print("图片处理完成")
-        return defect_data_list
+        # 将循环矩阵均分，均分成指定份数
+        circle_list = split_matrix_circular(circle_array, partition * 100, partition)
+        for i, data in enumerate(circle_list):
+            # for j, defect_data in enumerate(defect_data_list):
+            # 构建保存路径
+            save_path_before = os.path.join(img_noRectangle_address,
+                                            f'circleBefore_{i}.png') if img_noRectangle_address else None
+            save_path_after = os.path.join(img_rectangle_address,
+                                           f'circleAfter_{i}.png') if img_rectangle_address else None
+            xml_path = os.path.join(xml_save_address, f'circleAnnotation_{i}.xml') if xml_save_address else None
+
+            # Ensure directories exist
+            for path in (
+                    os.path.dirname(save_path_before), os.path.dirname(save_path_after), os.path.dirname(xml_path)):
+                ensure_directory(path)
+
+            # 记录开始时间
+            start_time = time.time()
+            save_plot_datasource_arrays(data, defect_data_list, 5, save_path_before, save_path_after, 'defect', 1, xml_path)
+            # 记录结束时间
+            end_time = time.time()
+
+            # 计算运行时间
+            elapsed_time = end_time - start_time
+            # 打印提示信息
+            print(f'第{i}张过圈缺陷检测图片已保存,运行时间：{elapsed_time} 秒')
+        print("图片处理完成")
     else:
         print("未找到有效的数据键（Data）")
         return None
